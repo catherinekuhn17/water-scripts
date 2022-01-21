@@ -11,20 +11,31 @@ from multiprocessing import Pool
 
 def parse_args():
     p = ArgumentParser(description=__doc__)
-   # p.add_argument("structure", type=str,
-   #                help="Path to PDB files with structures.")
-    p.add_argument("--base")
+    p.add_argument("--base", help="base directory of PDB files")
     p.add_argument("--dist", type=float, default='3.0',  help="Distance between water residue and close residues")  
-    p.add_argument("--pdb", help="Name of the input PDB.")
+    p.add_argument("--pdb", help="path to input pdb directories (with pattern)")
     args = p.parse_args()
     return args
 
-# finds for ALL waters (full and partial)
 def residues_close(fn, dist, pdb_n):
+    '''
+    Finds all of the atoms within a specified distance of each water, and outputs a dataframe with these distances and 
+    attributes (such as occupancy and B-factor) of the waters and protein atoms.
+    
+    Parameters:
+    ----------
+    fn : filename of PDB structure to analyze
+    dist : cut-off distance of water to PDB
+    pdb_n : name of pdb file (pulled frome filename)
+    
+    Returns:
+    -------
+    A CSV file containing a dataframe of distance/attribute information.
+    '''
     print(fn)
     try:
         structure = Structure.fromfile(fn).reorder()
-    except NotImplementedError:
+    except NotImplementedError: # sometimes there are issues in reading the file :/
         return
     resi_code_list = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLU', 'GLN', 'GLY', 
                   'HIS','ILE', 'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER',
@@ -66,7 +77,7 @@ def residues_close(fn, dist, pdb_n):
                         pdb_b.append(pdb_ext.b[0])
                         pdb_q.append(pdb_ext.q[0])
                         pdb_resn.append(pdb_ext.resn[0])
-                        pdb_all_res_b.append(pdb_ext_res.b[0]) # we want the b of the whole res too
+                        pdb_all_res_b.append(pdb_ext_res.b[0]) # we want the b of the whole res too!
 
     df=pd.DataFrame()
     df=pd.DataFrame(list(zip(wat_id,wat_altloc, wat_chain, wat_b, wat_q, pdb_chain, pdb_resi, pdb_resn, 
@@ -80,13 +91,10 @@ def main():
     args = parse_args()
     os.chdir(args.base)
     fns = []
-    print(args.pdb)
-    for file in glob.glob('*/*.pdb'): # get all pdb files in directory
+    for file in glob.glob(args.pdb): # get all pdb files in directory
         fns.append(file)
-    print(fns)
     dist = np.ones(len(fns))*args.dist # create array of distances
     args_for_pool = list(zip(fns, dist, [f[0:4] for f in fns])) # setup args for pool
-    print(args_for_pool)
     pool = Pool(processes=32)
     results = pool.starmap(residues_close, args_for_pool)
 
