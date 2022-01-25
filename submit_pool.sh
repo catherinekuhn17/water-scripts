@@ -18,11 +18,11 @@ export PATH="/wynton/home/fraserlab/swankowicz/anaconda3/bin:$PATH"
 source activate qfit
 
 PDB_file=/wynton/home/rotation/ckuhn/Desktop/Fraser_lab/pdb_files/download2/pdb_id_list.txt
-base_dir='/wynton/home/rotation/ckuhn/Desktop/Fraser_lab/pdb_files/download2/all2/'
+base_dir='/wynton/home/rotation/ckuhn/Desktop/Fraser_lab/pdb_files/download2/all2/test'
 cd $base_dir
 echo $base_dir
 #________________________________________________Qfit Analysis________________________________________________#
 
-python /wynton/home/rotation/ckuhn/Desktop/Fraser_lab/water-scripts/residues_close_all.py --base=$base_dir --pdb='*/*.pdb' --dist=5.0
+#python /wynton/home/rotation/ckuhn/Desktop/Fraser_lab/water-scripts/residues_close_pool.py --base=$base_dir --pdb='*/*.pdb' --dist=5.0
 
-
+python /wynton/home/rotation/ckuhn/Desktop/Fraser_lab/water-scripts/filter_closest.py --base=$base_dir --filenames='*pool.csv' --cutoff=2.5 
