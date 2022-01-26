@@ -10,6 +10,7 @@ import glob
 from multiprocessing import Pool
 
 def parse_args():
+    
     p = ArgumentParser(description=__doc__)
     p.add_argument("--base", help="base directory of PDB files")
     p.add_argument("--filenames", type=str, help="pattern for input dataframes")
@@ -32,11 +33,13 @@ def find_closest(input_id, input_df, cutoff,filter_type=None):
 
     '''
     print(f'Starting {input_id}')
-    wat_id, min_dist, wat_b, pdb_b, pdb_q, pdb_chain, pdb_resi, pdb_atom, pdb_resn, pdb_id, wat_q, prot_b, wat_altloc, pdb_altloc, validity, pdb_name, pdb_in_d = ([] for i in range(17))
     
-
+    wat_id, min_dist, wat_b, pdb_b, pdb_q, pdb_chain, pdb_resi, pdb_atom, pdb_resn, pdb_id, wat_q, prot_b, wat_altloc, pdb_altloc, wat_chain, pdb_name, pdb_in_d = ([] for i in range(17))
+    
     for w_id in np.unique(input_df['wat_id']):
+        
         tmp_df_a = input_df.copy()[input_df['wat_id'] == w_id]
+        
         for alt in np.unique(tmp_df_a['wat_altloc']):
             tmp_df = tmp_df_a[tmp_df_a['wat_altloc']==alt]
             wat_id.append(w_id)
@@ -46,6 +49,7 @@ def find_closest(input_id, input_df, cutoff,filter_type=None):
             w_q = list(tmp_df['wat_q'])[where]
             p_q = list(tmp_df['prot_q'])[where]
             new_df = tmp_df.copy()
+            
             if w_q < 1 and p_q < 1:
                 while min_d < cutoff:
                     if filter_type == 'remvove_alt':
@@ -71,11 +75,13 @@ def find_closest(input_id, input_df, cutoff,filter_type=None):
                             min_d = min(new_df['prot_dist'])
                     elif filter_type == None:
                         break                              
+            
             min_dist.append(min_d)
             where = np.where(new_df['prot_dist'] == min_d)[0][0]
             pdb_name.append(input_id)
             wat_b.append(list(new_df['wat_b'])[where])
             wat_q.append(list(new_df['wat_q'])[where])
+            wat_chain.append(list(new_df['wat_chain'])[where])
             wat_altloc.append(list(new_df['wat_altloc'])[where])
             pdb_b.append(list(new_df['prot_b'])[where])
             pdb_q.append(list(new_df['prot_q'])[where])
@@ -85,34 +91,25 @@ def find_closest(input_id, input_df, cutoff,filter_type=None):
             pdb_atom.append(list(new_df['prot_atom'])[where])
             pdb_altloc.append(list(new_df['prot_altloc'])[where])
             prot_b.append(list(new_df['prot_all_res_b'])[where])
-    df_full = pd.DataFrame()
-    df_full['wat_id'] = wat_id
-    df_full['name'] = pdb_name
-    df_full['wat_b'] = wat_b
-    df_full['wat_q'] = wat_q
-    df_full['wat_altloc'] = wat_altloc
-    df_full['pdb_b'] = pdb_b
-    df_full['pdb_q'] = pdb_q
-    df_full['pdb_chain'] = pdb_chain
-    df_full['pdb_id'] = pdb_name
-    df_full['pdb_resi'] = pdb_resi
-    df_full['pdb_atom'] = pdb_atom
-    df_full['pdb_resn'] =pdb_resn
-    df_full['min_dist'] = min_dist
-    df_full['pdb_altloc'] = pdb_altloc
-    df_full['prot_b'] = prot_b
-    df_full['pdb_in_d'] = pdb_in_d
+   
+    df = pd.DataFrame()
+    df = pd.DataFrame(list(zip(wat_id, pdb_name, wat_altloc, wat_chain, wat_b, wat_q, pdb_chain, pdb_resi, pdb_resn, 
+                             pdb_atom, pdb_altloc, pdb_b, pdb_q, pdb_dist, prot_b, pdb_in_d)),
+                      columns=['wat_id', 'wat_altloc', 'wat_chain', 'wat_b', 'wat_q', 'pdb_chain', 'pdb_resi', 'pdb_resn', 
+                               'psb_atom', 'pdb_altloc', 'pdb_b', 'ppdb_q', 'prot_dist', 'prot_b', 'pdb_in_d'])
     print(f'Finishing {input_id}')
-    return df_full
+    return df
 
 
 def main():
+    
     args = parse_args()
     dicty_full=dict()
+    
     for file in glob.glob(args.filenames):
         dicty_full[file[0:4]] = pd.read_csv(file)
     args_for_pool = list(zip(dicty_full.keys(), dicty_full.values(), [args.cutoff for i in range(len(dicty_full.keys()))], [args.filter_type for i in range(len(dicty_full.keys()))])) # setup args for pool
-    print(args_for_pool[0])
+
     pool = Pool(processes=32)
     results = pool.starmap(find_closest, args_for_pool)
 
