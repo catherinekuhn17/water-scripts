@@ -492,7 +492,7 @@ def build_dictionaries(df, out_dir):
         min_ang_dict[at] = min_ang
         cont_dict[at] = cont
     np.save(f"max_ang.npy", max_ang_dict, allow_pickle='TRUE')
-    np.save(f"min_ang.npy", max_ang_dict, allow_pickle='TRUE')
+    np.save(f"min_ang.npy", min_ang_dict, allow_pickle='TRUE')
     np.save(f"dih_info.npy", dih_info, allow_pickle='TRUE')
     np.save(f"cont_dict.npy", cont_dict, allow_pickle='TRUE')
 
