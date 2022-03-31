@@ -16,6 +16,12 @@ from DICT4A_ALLAT import DICT4A_ALLAT
 from multiprocessing import Pool
 from scipy.signal import argrelextrema
 
+def parse_args():
+    p = ArgumentParser(description=__doc__)
+    p.add_argument("--pdb", help="path to input pdb directories (with pattern)")
+    p.add_argument("--out", help="directory to write files out to")
+    args = p.parse_args()
+    return args
 
 def new_dihedral(p):
     """
@@ -150,12 +156,13 @@ def get_coord_list(fn):
         a dataframe containing information for later analysis. that information inclues infor of the
         sets of 4 atoms in thei structure and their surrounding water
     '''
+    # this is so we don't keep waters that "clash" ie are within this distance to the atoms
     dict_dist = {
-        'Cm' : 3.1,
+        'Cm' : 3.0,
         'Nm' : 2.4,
         'Om' : 2.4,
         'S' : 2.4,
-        'C' : 3.1,
+        'C' : 3.0,
         'N' : 2.4,
         'O' : 2.4
     }
@@ -169,113 +176,123 @@ def get_coord_list(fn):
     except RuntimeError:
         return
     water = pdb_struct.extract('resn HOH') # extracting just the waters
+    # so we can get each residue+chain combo and itterate through that
+    
     res_list_idx = np.unique([(r.chain[0]+str(r.resi[0])) for r in list(pdb_struct.residues)])
     for idx, res_s in enumerate(res_list_idx):
-        res = pdb_struct.extract(f'resi {res_s[1::]} and chain {res_s[0]}')
-        if res.resn[0] in list(DICT4A.keys()): # make sure it's actually a residue!
-            res_info = np.array(list(zip(res.coor, res.b, res.q)), dtype=object)[:,0]
-            # check for altlocs (if no altlocs, this will just be '')
-            all_altlocs = np.unique(res.altloc) 
-            for a in all_altlocs:
-                # indices only with the altloc we want
-                poss_idx = np.where(np.array((res.altloc=='')*1 + (res.altloc==a)*1)>=1)[0] 
-                name2idx = dict(zip(res.name[poss_idx],np.arange(len(res.name[poss_idx]))))
-                for at_s_k, at_s_v in DICT4A[res.resn[0]].items():
-                    all_atoms = [y for x in at_s_k 
-                                 for y in (x if isinstance(x, tuple) else (x,))]
-                    check_all_atoms = [name2idx[e] for e in all_atoms if e in name2idx]
-                    # basically checks to make sure we have all the atoms
-                    if len(all_atoms) == len(check_all_atoms): 
-                         # want to deal with aromatics a bittt differently 
-                         # (or at least the atom sets that contain their rings)
-                        if 'YR1' in at_s_v or 'FR1' in at_s_v or 'WR1' in at_s_v:
-                            # this is all the atoms in the atom set
-                            all_atoms = [y for x in at_s_k 
-                                          for y in (x if isinstance(x, tuple) else (x,))]
-                            at_coords = []
-                            all_coords = []
-                            for at in at_s_k:
-                                if len(at)>4: # basically, if it is a ring
-                                    ring_idx = [name2idx[e] for e in at] # get indices of rings
-                                    if len(ring_idx) == len(at): # so if we have all residues
-                                        ring_coords = res.coor[poss_idx][ring_idx]
-                                        # get the center of mass!
-                                        ring_com = sum(ring_coords)/len(ring_coords) 
-                                        for rc in ring_coords:
-                                            all_coords.append(rc)
-                                        at_coords.append(ring_com) 
-                                else: # otherwise we deal with it normally
-                                    at_coords.append(res.coor[poss_idx][name2idx[at]])
-                                    all_coords.append(res.coor[poss_idx][name2idx[at]])
-                            b_fact_prot = sum(res.b[poss_idx])/len(res.b[poss_idx])
-                            # looking at distance to water with all atoms included
-                            dist2wat = cdist(water.coor, all_coords)
-                            prod = np.full((dist2wat[:,0].shape), True)
-                            for i in range(dist2wat.shape[1]):
-                                non_clash_tmp = (dist2wat[:,i]>dict_dist[DICT4A_ALLAT[res.resn[0]][tuple(at_s_v)][i]])
-                                prod = prod*non_clash_tmp
-                            lower_cutoff = np.where(prod)[0]
-                            upper_cuttoff = list(np.where(dist2wat<3.5)[0])
-                            water_coords_idx = list(set(upper_cuttoff).intersection(lower_cutoff))
-                        # if not dealing with a ring:
-                        else:
-                            # indices we currently care about
-                            curr_idx = [name2idx[e] for e in at_s_k]
-                            # coordinates of 4 atoms
-                            at_coords = res.coor[poss_idx][curr_idx] 
-                            # to save avg b factor of whole residue
-                            b_fact_prot = sum(res.b[poss_idx])/len(res.b[poss_idx]) 
-                            # distance between 4 atoms and ALL waters
-                            dist2wat = cdist(water.coor, at_coords) 
-                            # we only want waters within 3.5 A
-                            upper_cuttoff = list(np.where(dist2wat<3.5)[0]) 
-                            # now we want to only keep waters that DON'T CLASH with the atoms
-                            prod = np.full((dist2wat[:,0].shape), True)
-                            for i in range(dist2wat.shape[1]):
-                                non_clash_tmp = (dist2wat[:,i]>dict_dist[at_s_v[i]])
-                                prod = prod*non_clash_tmp
-                            lower_cutoff = np.where(prod)[0]
-                            # these are the "good" waters we want to keep
-                            water_coords_idx = list(set(upper_cuttoff).intersection(lower_cutoff))
-                        # if we have at least one water, we want to record it!
-                        if len(water_coords_idx)>0: 
-                            water_coords = water.coor[np.array(water_coords_idx)]
-                            water_b = water.b[np.array(water_coords_idx)]
-                            water_q = water.q[np.array(water_coords_idx)]
-                            water_b_reshape = water_b.reshape(-1,water_coords.shape[0])
-                            water_q_reshape = water_q.reshape(-1,water_coords.shape[0])
-                            water_info = np.hstack((water_coords,
-                                                    water_b_reshape.T, 
-                                                    water_q_reshape.T))    
-                            water_info = [tuple(w) for w in water_info]
-                            unique_wat = list(set(water_info))
-                            wat_coord=[]
-                            b=[]
-                            q=[]
-                            for e in np.array(unique_wat):
-                                wat_coord = (np.array(e)[0:3])
-                                b = float(np.array(e)[3])
-                                q = float(np.array(e)[4])
-                                coord_list.append((pdb_id, # the PDB code
-                                                 res.chain[0], # chain #
-                                                 res.resi[0], # residue #
-                                                 res.resn[0], # residue name
-                                                 a, # alt loc
-                                                 b_fact_prot, # avg b factor of residue
-                                                 tuple(at_s_v), # gerneralized name of 4 atoms
-                                                 tuple(at_s_k), # name of 4 atoms
-                                                 at_coords, # coords of atom set
-                                                 wat_coord,
-                                                 b, q)) # has water coords and water b and q
+        if res_s[0].isalpha():
+            res = pdb_struct.extract(f'resi {res_s[1::]} and chain {res_s[0]}')
+            if res.resn[0] in list(DICT4A.keys()): # make sure it's actually a residue!
+                res_info = np.array(list(zip(res.coor, res.b, res.q)), dtype=object)[:,0]
+                # check for altlocs (if no altlocs, this will just be '')
+                all_altlocs = np.unique(res.altloc) 
+                for a in all_altlocs:
+                    # stom indices of residue only with the altloc we want (this is for when residues 
+                    # define altloc sidechain and nonaltloc backbone together - we want to keep the 
+                    # whole residue!
+                    poss_idx = np.where(np.array((res.altloc=='')*1 + (res.altloc==a)*1)>=1)[0] 
+                    name2idx = dict(zip(res.name[poss_idx], np.arange(len(res.name[poss_idx]))))
+                    for at_s_k, at_s_v in DICT4A[res.resn[0]].items(): 
+                        all_atoms = [y for x in at_s_k 
+                                     for y in (x if isinstance(x, tuple) else (x,))]
+                        check_all_atoms = [name2idx[e] for e in all_atoms if e in name2idx]
+                        # basically checks to make sure we have all the atoms
+                        if len(all_atoms) == len(check_all_atoms): 
+                             # want to deal with aromatics a bittt differently 
+                             # (or at least the atom sets that contain their rings)
+                            if 'YR1' in at_s_v or 'FR1' in at_s_v or 'WR1' in at_s_v:
+                                # this is all the atoms in the atom set
+                                all_atoms = [y for x in at_s_k 
+                                              for y in (x if isinstance(x, tuple) else (x,))]
+                                at_coords = []
+                                all_coords = []
+                                for at in at_s_k:
+                                    if len(at)>4: # basically, if it is a ring
+                                        ring_idx = [name2idx[e] for e in at] # get indices of rings
+                                        if len(ring_idx) == len(at): # so if we have all residues
+                                            ring_coords = res.coor[poss_idx][ring_idx]
+                                            # get the center of mass!
+                                            ring_com = sum(ring_coords)/len(ring_coords) 
+                                            for rc in ring_coords:
+                                                all_coords.append(rc)
+                                            at_coords.append(ring_com) 
+                                    else: # otherwise we deal with it normally
+                                        at_coords.append(res.coor[poss_idx][name2idx[at]])
+                                        all_coords.append(res.coor[poss_idx][name2idx[at]])
+                                b_fact_prot = sum(res.b[poss_idx])/len(res.b[poss_idx])
+                                # looking at distance to water with all atoms included
+                                dist2wat = cdist(water.coor, all_coords)
+                                prod = np.full((dist2wat[:,0].shape), True)
+                                for i in range(dist2wat.shape[1]):
+                                    non_clash_tmp = (dist2wat[:,i]>dict_dist[DICT4A_ALLAT[res.resn[0]][tuple(at_s_v)][i]])
+                                    prod = prod*non_clash_tmp
+                                lower_cutoff = np.where(prod)[0]
+                                upper_cuttoff = list(np.where(dist2wat<3.5)[0])
+                                water_coords_idx = list(set(upper_cuttoff).intersection(lower_cutoff))
+                            # if not dealing with a ring:
+                            else:
+                                # indices we currently care about
+                                curr_idx = [name2idx[e] for e in at_s_k]
+                                # coordinates of 4 atoms
+                                at_coords = res.coor[poss_idx][curr_idx] 
+                                # to save avg b factor of whole residue
+                                b_fact_prot = sum(res.b[poss_idx])/len(res.b[poss_idx]) 
+                                # distance between 4 atoms and ALL waters
+                                dist2wat = cdist(water.coor, at_coords) 
+                                # we only want waters within 3.5 A
+                                upper_cuttoff = list(np.where(dist2wat<3.5)[0]) 
+                                # now we want to only keep waters that DON'T CLASH with the atoms
+                                prod = np.full((dist2wat[:,0].shape), True)
+                                for i in range(dist2wat.shape[1]):
+                                    non_clash_tmp = (dist2wat[:,i]>dict_dist[at_s_v[i]])
+                                    prod = prod*non_clash_tmp
+                                lower_cutoff = np.where(prod)[0]
+                                # these are the "good" waters we want to keep
+                                water_coords_idx = list(set(upper_cuttoff).intersection(lower_cutoff))
+                            # if we have at least one water, we want to record it!
+                            if len(water_coords_idx)>0: 
+                                water_coords = water.coor[np.array(water_coords_idx)]
+                                water_b = water.b[np.array(water_coords_idx)]
+                                water_q = water.q[np.array(water_coords_idx)]
+                                water_b_reshape = water_b.reshape(-1,water_coords.shape[0])
+                                water_q_reshape = water_q.reshape(-1,water_coords.shape[0])
+                                water_info = np.hstack((water_coords,
+                                                        water_b_reshape.T, 
+                                                        water_q_reshape.T))    
+                                water_info = [tuple(w) for w in water_info]
+                                unique_wat = list(set(water_info))
+                                wat_coord=[]
+                                b=[]
+                                q=[]
+                                for e in np.array(unique_wat):
+                                    wat_coord = (np.array(e)[0:3])
+                                    b = float(np.array(e)[3])
+                                    q = float(np.array(e)[4])
+                                    coord_list.append((pdb_id, # the PDB code
+                                                     res.chain[0], # chain #
+                                                     res.resi[0], # residue #
+                                                     res.resn[0], # residue name
+                                                     a, # alt loc
+                                                     b_fact_prot, # avg b factor of residue
+                                                     tuple(at_s_v), # gerneralized name of 4 atoms
+                                                     tuple(at_s_k), # name of 4 atoms
+                                                     at_coords, # coords of atom set
+                                                     wat_coord, # coords if water
+                                                     b, q)) # water b and q
     print(f'finishing {pdb_id}')
-    df = build_df(pdb_id, coord_list) # turn this into a df so we can save it as a csv!
-    return df
+    if len(coord_list)>0:
+        df = build_df(pdb_id, coord_list) # turn this into a df 
+        return df
+    else:
+        print('error')
+        return
+        
 
     
     
 def build_df(pdb_id, coord_list):
     '''
-    function to build a data frame from the coord_list created before for the sets of 4 atoms
+    Function to build a data frame from the coord_list created before for the sets of 4 atoms
     Parameters
     ----------
         pdb_id : string
@@ -304,6 +321,7 @@ def build_df(pdb_id, coord_list):
     df['q'] = np.array(coord_list, dtype=object)[:,11]
     dih = [new_dihedral(np.array(e)) for e in df['prot_coord']]
     dih_new=[]
+    # not really necessary 
     for di in dih:
         if di<0:
             di+=360
@@ -397,10 +415,14 @@ def obtain_new_xyz(df, max_point, indx, atoms):
         set of 4 atoms we are looking at
     Returns
     -------
-    new_p_coord : 
-    new_wt_coord : 
-    norm_b_val : 
-    wat_q_val : 
+    new_p_coord : list
+        new xyz coords for atoms sets
+    new_wt_coord : list
+        new xyz coords for waters
+    norm_b_val : list
+        normalized b valuse for waters
+    wat_q_val : list
+        occupancies for waters
     '''
     new_p_coord = []
     new_wt_coord = []
@@ -419,6 +441,26 @@ def obtain_new_xyz(df, max_point, indx, atoms):
     return new_p_coord, new_wt_coord, norm_b_val, wat_q_val
 
 def build_dictionaries(df, out_dir):
+    '''
+    function for building dictionaries that are the final output (using obtain_new_xyz from above)
+    
+    Parameters 
+    ----------
+    df : DataFrame
+        df of all the water/atoms sets info
+    out_dir : string
+        where you want the output directories to be written to
+    
+    Returns
+    -------
+    nothing, but writes out to these files (which are dictionaries), 
+    and for every atom set tells you:
+    max_ang.npy : the local maxima of the dihdreal distribution
+    min_ang.npy : the local minima of the dihedral distribution
+    dih_info.npy : all the info of the xyz coords of the template sets + protein + waters, 
+        and b factors and occupancy
+    cont_dict.npy : if we want to continue a dihedral bin through 180->-180
+    '''
     # create our empty dicts
     max_ang_dict={}
     min_ang_dict={}
@@ -455,10 +497,10 @@ def build_dictionaries(df, out_dir):
     np.save(f"cont_dict.npy", cont_dict, allow_pickle='TRUE')
 
 def main():
-    out_dir = '/Users/catherinekuhn/Desktop/rotations/fraser/scripts/out'
-  #  fn = '/wynton/home/rotation/ckuhn/Desktop/Fraser_lab/top2018_pdbs_mc_filtered_hom30'
-    fn = '/Users/catherinekuhn/Downloads/top2018_pdbs_mc_filtered_hom30'
-  # out_dir = '/wynton/home/rotation/ckuhn/Desktop/Fraser_lab/water-scripts/out'
+    args = parse_args()
+    fn = args.pdb
+    out_dir = args.out
+   # os.mkdir(out_dir)
     os.chdir(fn)
     fns=[]
     for fi in glob.glob("*/*/*pdb"):
@@ -468,7 +510,7 @@ def main():
     with Pool(processes=32) as p:
         df = pd.concat(p.starmap(get_coord_list, zip(fns)))
     os.chdir(out_dir)
-    df.to_csv(f'all.csv')
+    # df.to_csv(f'all.csv')
     # now, use this df to build some dictionaries
     build_dictionaries(df, out_dir)
 

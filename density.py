@@ -6,6 +6,14 @@ from sklearn.cluster import MeanShift
 from sklearn.cluster import  estimate_bandwidth
 from scipy.spatial.distance import cdist
 
+def parse_args():
+    p = ArgumentParser(description=__doc__)
+    p.add_argument("--out", help="directory to read from/write files out to")
+    p.add_argument("--pt", help="percentile cuttoff for meanshift")
+    p.add_argument("--length", help="max number of waters to use")
+    args = p.parse_args()
+    return args
+
 def find_density(coords_all, pt, length):
     '''
     Function for finding density of water distribution around a set of 4 atoms, and
@@ -88,7 +96,7 @@ def find_density(coords_all, pt, length):
                 # increases the # of points that need to be in a bin
                 # cluster_all=False means we don't cluster everything
                 # these params have not been optimized at all
-                msc = MeanShift(bandwidth=2, bin_seeding=False, min_bin_freq=100, cluster_all=True)
+                msc = MeanShift(bandwidth=1, bin_seeding=False)
                 msc.fit(wat_coords[idx])
                 cluster_centers = msc.cluster_centers_
                 labels = msc.labels_
@@ -125,11 +133,12 @@ def find_density(coords_all, pt, length):
     return
 
 def main():
-    out_dir = '/Users/catherinekuhn/Desktop/rotations/fraser/scripts/out'
+    args = parse_args()
+    out_dir = args.out
+    pt = args.pt
+    length = args.length
     os.chdir(out_dir)
     coords_all = np.load('dih_info.npy',allow_pickle='TRUE').item()
-    pt = 0
-    length = 50000
     find_density(coords_all, pt, length)
 
 if __name__ == '__main__':
