@@ -4,7 +4,7 @@ import os
 import sys
 import numpy as np
 import pandas as pd
-#from argparse import ArgumentParser
+from argparse import ArgumentParser
 from qfit.structure import Structure
 import glob
 from multiprocessing import Pool
