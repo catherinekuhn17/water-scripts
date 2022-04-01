@@ -8,6 +8,8 @@
 #$ -V
 #$ -e /wynton/home/rotation/ckuhn/Desktop/Fraser_lab/water-scripts/error/error\$TASK_ID.txt
 #$ -e /wynton/home/rotation/ckuhn/Desktop/Fraser_lab/water-scripts/out/\$TASK_ID.log
+source= /wynton/home/rotation/ckuhn/anaconda3/envs
+source activate water
 base_dir='/wynton/home/rotation/ckuhn/Desktop/Fraser_lab/water-scripts'
 out_dir='/wynton/home/rotation/ckuhn/Desktop/Fraser_lab/water-scripts/out'
 file_dir='/wynton/home/rotation/ckuhn/Desktop/Fraser_lab/top2018_cifs_full_filtered_hom30'
